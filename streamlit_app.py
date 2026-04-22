@@ -28,7 +28,6 @@ def load_data():
     size_col = size_match.iloc[0] if not size_match.empty else None
 
     df = pd.DataFrame(cbsodata.get_data(TABLE))
-    st.write(df[["bedrijfstak", "bedrijfsgrootte"]].drop_duplicates().head(20))
     
     df[sector_col] = df[sector_col].astype(str)
 
