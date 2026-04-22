@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import cbsodata
+import json
+from openai import OpenAI
 
 st.set_page_config(page_title="CBS verzuimdata", layout="wide")
 st.title("CBS verzuimdata")
