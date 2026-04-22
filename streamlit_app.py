@@ -7,6 +7,14 @@ st.title("CBS verzuimdata")
 
 TABLE = "80072NED"
 
+
+def classify_dim(label: str) -> str:
+    s = str(label).lower()
+    if "werkzame personen" in s:
+        return "Bedrijfsgrootte"
+    return "Bedrijfstype"
+
+
 @st.cache_data
 def load_data():
     props = pd.DataFrame(cbsodata.get_meta(TABLE, "DataProperties"))
@@ -16,39 +24,21 @@ def load_data():
         props["Title"].str.contains("Ziekteverzuimpercentage", case=False, na=False),
         "Key"
     ].iloc[0]
-    sector_col = props.loc[
+    feature_col = props.loc[
         props["Title"].str.contains("Bedrijfskenmerken", case=False, na=False),
         "Key"
     ].iloc[0]
 
-    size_match = props.loc[
-        props["Title"].str.contains("Bedrijfsgrootte", case=False, na=False),
-        "Key"
-    ]
-    size_col = size_match.iloc[0] if not size_match.empty else None
-
     df = pd.DataFrame(cbsodata.get_data(TABLE))
-    
-    df[sector_col] = df[sector_col].astype(str)
 
-    sector_meta = pd.DataFrame(cbsodata.get_meta(TABLE, sector_col))[["Key", "Title"]].copy()
-    sector_meta["Key"] = sector_meta["Key"].astype(str)
-    sector_meta = sector_meta.rename(columns={"Key": sector_col, "Title": "bedrijfstak"})
-    
-    df = df.merge(sector_meta, on=sector_col, how="left")
-    df["bedrijfstak"] = df["bedrijfstak"].fillna(df[sector_col])
-    
-    if size_col:
-        df[size_col] = df[size_col].astype(str)
-    
-        size_meta = pd.DataFrame(cbsodata.get_meta(TABLE, size_col))[["Key", "Title"]].copy()
-        size_meta["Key"] = size_meta["Key"].astype(str)
-        size_meta = size_meta.rename(columns={"Key": size_col, "Title": "bedrijfsgrootte"})
-    
-        df = df.merge(size_meta, on=size_col, how="left")
-        df["bedrijfsgrootte"] = df["bedrijfsgrootte"].fillna(df[size_col])
-    else:
-        df["bedrijfsgrootte"] = None
+    df[feature_col] = df[feature_col].astype(str)
+
+    feature_meta = pd.DataFrame(cbsodata.get_meta(TABLE, feature_col))[["Key", "Title"]].copy()
+    feature_meta["Key"] = feature_meta["Key"].astype(str)
+    feature_meta = feature_meta.rename(columns={"Key": feature_col, "Title": "bedrijfstak"})
+
+    df = df.merge(feature_meta, on=feature_col, how="left")
+    df["bedrijfstak"] = df["bedrijfstak"].fillna(df[feature_col])
 
     df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
 
@@ -59,12 +49,20 @@ def load_data():
     df["periode_label"] = raw_period
     df["sort_key"] = df["jaar"] * 10 + df["kwartaal"].fillna(0)
 
+    df["dim_type"] = df["bedrijfstak"].apply(classify_dim)
+    df["dim_value"] = df["bedrijfstak"].astype(str)
+
     df = df.dropna(subset=["jaar", value_col]).copy()
 
-    return df, period_col, value_col
+    global_total_label = next(
+        (x for x in df["dim_value"].dropna().unique().tolist() if "alle economische activiteiten" in x.lower()),
+        None
+    )
+
+    return df, value_col, global_total_label
 
 
-df, period_col, value_col = load_data()
+df, value_col, global_total_label = load_data()
 
 # -------------------------
 # FILTERS
@@ -84,87 +82,69 @@ year_range = st.sidebar.slider(
     value=(default_start, max_year)
 )
 
-filtered = df[
+base_df = df[
     (df["frequentie"] == freq) &
     (df["jaar"] >= year_range[0]) &
     (df["jaar"] <= year_range[1])
 ].copy()
 
-# Alleen filteren op bedrijfsgrootte als die info echt nuttig is
-size_options = sorted(
-    filtered["bedrijfsgrootte"].dropna().astype(str).unique().tolist()
+analyse_op = st.sidebar.radio(
+    "Analyse op",
+    ["Bedrijfstype", "Bedrijfsgrootte"],
+    index=0
 )
 
-show_size_filter = not (
-    len(size_options) == 0 or
-    (len(size_options) == 1 and size_options[0].strip().lower() == "onbekend")
-)
+view_df = base_df[base_df["dim_type"] == analyse_op].copy()
 
-if show_size_filter:
-    default_size = [
-        next(
-            (x for x in size_options if "totaal" in x.lower() or "alle" in x.lower()),
-            size_options[0]
-        )
-    ]
+options = sorted(view_df["dim_value"].dropna().unique().tolist())
 
-    selected_sizes = st.sidebar.multiselect(
-        "Bedrijfsgrootte",
-        size_options,
-        default=default_size
-    )
-
-    if selected_sizes:
-        filtered = filtered[filtered["bedrijfsgrootte"].isin(selected_sizes)]
-else:
-    st.sidebar.caption("Bedrijfsgrootte niet beschikbaar in deze selectie")
-
-sector_options = sorted(
-    filtered["bedrijfstak"].dropna().astype(str).unique().tolist()
-)
-
-if not sector_options:
-    st.warning("Geen bedrijfstakken beschikbaar voor deze filtercombinatie.")
+if not options:
+    st.warning("Geen opties beschikbaar voor deze analysekeuze.")
     st.stop()
 
-default_sector = next(
-    (x for x in sector_options if "alle economische activiteiten" in x.lower()),
-    sector_options[0]
+default_option = next(
+    (x for x in options if "alle economische activiteiten" in x.lower()),
+    options[0]
 )
 
-selected_sectors = st.sidebar.multiselect(
-    "Bedrijfstakken",
-    sector_options,
-    default=[default_sector]
+selected_options = st.sidebar.multiselect(
+    analyse_op,
+    options,
+    default=[default_option]
 )
 
-if not selected_sectors:
-    selected_sectors = [default_sector]
+if not selected_options:
+    selected_options = [default_option]
 
 include_benchmark = st.sidebar.checkbox("Voeg benchmark totaal toe", value=True)
 
-if include_benchmark and default_sector not in selected_sectors:
-    selected_sectors = [default_sector] + selected_sectors
+selected_df = view_df[view_df["dim_value"].isin(selected_options)].copy()
 
-filtered = filtered[filtered["bedrijfstak"].isin(selected_sectors)]
+if include_benchmark and global_total_label:
+    benchmark_df = base_df[base_df["dim_value"] == global_total_label].copy()
+    selected_df = pd.concat([selected_df, benchmark_df], ignore_index=True).drop_duplicates()
 
-if filtered.empty:
+if selected_df.empty:
     st.warning("Geen data voor deze filters.")
     st.stop()
+
 # -------------------------
 # KPI'S
 # -------------------------
-latest_key = filtered["sort_key"].max()
-all_keys = sorted(filtered["sort_key"].dropna().unique().tolist())
+latest_key = selected_df["sort_key"].max()
+all_keys = sorted(selected_df["sort_key"].dropna().unique().tolist())
 prev_key = all_keys[-2] if len(all_keys) > 1 else None
 
-latest_df = filtered[filtered["sort_key"] == latest_key]
-latest_avg = latest_df[value_col].mean()
+latest_df = selected_df[selected_df["sort_key"] == latest_key].copy()
+latest_selected_df = latest_df[latest_df["dim_value"].isin(selected_options)].copy()
+
+latest_avg = latest_selected_df[value_col].mean()
 
 delta = None
 if prev_key is not None:
-    prev_df = filtered[filtered["sort_key"] == prev_key]
-    prev_avg = prev_df[value_col].mean()
+    prev_df = selected_df[selected_df["sort_key"] == prev_key].copy()
+    prev_selected_df = prev_df[prev_df["dim_value"].isin(selected_options)].copy()
+    prev_avg = prev_selected_df[value_col].mean()
     delta = latest_avg - prev_avg
 
 latest_period = latest_df["periode_label"].iloc[0]
@@ -172,28 +152,28 @@ latest_period = latest_df["periode_label"].iloc[0]
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Gemiddeld verzuim", f"{latest_avg:.1f}%")
 c2.metric("Delta vs vorige periode", f"{delta:+.1f} pp" if delta is not None else "-")
-c3.metric("Aantal bedrijfstakken", len(set(selected_sectors)))
+c3.metric("Aantal categorieën", len(selected_options))
 c4.metric("Laatste periode", latest_period)
 
 # -------------------------
 # CHARTS
 # -------------------------
 period_order = (
-    filtered.groupby("periode_label")["sort_key"]
+    selected_df.groupby("periode_label")["sort_key"]
     .max()
     .sort_values()
     .index
 )
 
-trend_df = filtered.pivot_table(
+trend_df = selected_df.pivot_table(
     index="periode_label",
-    columns="bedrijfstak",
+    columns="dim_value",
     values=value_col,
     aggfunc="mean"
 ).reindex(period_order)
 
 latest_bar = (
-    latest_df.groupby("bedrijfstak")[value_col]
+    latest_df.groupby("dim_value")[value_col]
     .mean()
     .sort_values(ascending=False)
 )
@@ -209,13 +189,13 @@ with right:
     st.bar_chart(latest_bar)
 
 # -------------------------
-# DATA
+# DETAILTABEL
 # -------------------------
 st.subheader("Data")
 
-table_df = filtered[
-    ["periode_label", "bedrijfstak", "bedrijfsgrootte", value_col]
-].sort_values(["periode_label", "bedrijfstak"])
+table_df = selected_df[
+    ["periode_label", "dim_type", "dim_value", value_col]
+].sort_values(["periode_label", "dim_value"])
 
 st.dataframe(table_df, use_container_width=True)
 
