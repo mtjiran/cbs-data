@@ -12,7 +12,6 @@ URL = "https://datasets.cbs.nl/CSV/CBS/nl/80072ned"
 def load_data():
     response = requests.get(URL, timeout=60)
     response.raise_for_status()
-
     raw = response.content
 
     text = None
@@ -26,11 +25,39 @@ def load_data():
     if text is None:
         raise ValueError("Kon CBS-bestand niet decoderen.")
 
-    df = pd.read_csv(io.StringIO(text), sep=";")
+    lines = [line for line in text.splitlines() if line.strip()]
+
+    header_idx = None
+    for i, line in enumerate(lines):
+        if "Perioden" in line and "Ziekteverzuim" in line:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        raise ValueError("Kon de headerregel van het CBS-bestand niet vinden.")
+
+    header_line = lines[header_idx]
+
+    if header_line.count(";") >= header_line.count(",") and header_line.count(";") >= header_line.count("\t"):
+        sep = ";"
+    elif header_line.count(",") >= header_line.count("\t"):
+        sep = ","
+    else:
+        sep = "\t"
+
+    clean_text = "\n".join(lines[header_idx:])
+
+    df = pd.read_csv(
+        io.StringIO(clean_text),
+        sep=sep,
+        engine="python",
+        on_bad_lines="skip"
+    )
+
     df.columns = [c.strip() for c in df.columns]
 
     period_col = next(c for c in df.columns if "Perioden" in c)
-    value_col = next(c for c in df.columns if "Ziekteverzuimpercentage" in c)
+    value_col = next(c for c in df.columns if "Ziekteverzuim" in c)
     sector_col = next(c for c in df.columns if "Bedrijfskenmerken" in c)
     size_col = next((c for c in df.columns if "Bedrijfsgrootte" in c), None)
 
@@ -48,8 +75,9 @@ def load_data():
     df["periode_label"] = raw_period
     df["sort_key"] = df["jaar"] * 10 + df["kwartaal"].fillna(0)
 
-    return df, period_col, value_col, sector_col, size_col
+    df = df.dropna(subset=["jaar", value_col])
 
+    return df, period_col, value_col, sector_col, size_col
 df, period_col, value_col, sector_col, size_col = load_data()
 
 # -----------------------
