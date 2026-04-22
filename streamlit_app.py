@@ -28,15 +28,26 @@ def load_data():
     size_col = size_match.iloc[0] if not size_match.empty else None
 
     df = pd.DataFrame(cbsodata.get_data(TABLE))
+st.write(df[["bedrijfstak", "bedrijfsgrootte"]].drop_duplicates().head(20))
 
-    sector_meta = pd.DataFrame(cbsodata.get_meta(TABLE, sector_col))[["Key", "Title"]]
+df[sector_col] = df[sector_col].astype(str)
+
+    sector_meta = pd.DataFrame(cbsodata.get_meta(TABLE, sector_col))[["Key", "Title"]].copy()
+    sector_meta["Key"] = sector_meta["Key"].astype(str)
     sector_meta = sector_meta.rename(columns={"Key": sector_col, "Title": "bedrijfstak"})
+    
     df = df.merge(sector_meta, on=sector_col, how="left")
-
+    df["bedrijfstak"] = df["bedrijfstak"].fillna(df[sector_col])
+    
     if size_col:
-        size_meta = pd.DataFrame(cbsodata.get_meta(TABLE, size_col))[["Key", "Title"]]
+        df[size_col] = df[size_col].astype(str)
+    
+        size_meta = pd.DataFrame(cbsodata.get_meta(TABLE, size_col))[["Key", "Title"]].copy()
+        size_meta["Key"] = size_meta["Key"].astype(str)
         size_meta = size_meta.rename(columns={"Key": size_col, "Title": "bedrijfsgrootte"})
+    
         df = df.merge(size_meta, on=size_col, how="left")
+        df["bedrijfsgrootte"] = df["bedrijfsgrootte"].fillna(df[size_col])
     else:
         df["bedrijfsgrootte"] = None
 
