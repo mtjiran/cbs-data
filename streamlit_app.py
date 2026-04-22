@@ -11,11 +11,7 @@ BASE_URL_FEED = "https://opendata.cbs.nl/ODataFeed/odata/83765NED/TypedDataSet"
 @st.cache_data
 def load_cbs_filtered():
     """Snelste route: gefilterde query"""
-    url = (
-        BASE_URL_API
-        "?$filter=BedrijfstakkenBranchesSBI2008 eq 'T001019'"
-        "&$select=Perioden,Ziekteverzuim_1"
-    )
+    url = f"{BASE_URL_API}?$filter=BedrijfstakkenBranchesSBI2008 eq 'T001019'&$select=Perioden,Ziekteverzuim_1"
 
     r = requests.get(url)
     r.raise_for_status()
