@@ -1,18 +1,21 @@
 import streamlit as st
 import pandas as pd
+import requests
 
 st.title("Ziekteverzuim (CBS) – laatste 10 jaar")
 
 url = "https://opendata.cbs.nl/ODataApi/odata/83765NED/TypedDataSet"
 
-df = pd.read_json(url)
+response = requests.get(url)
+data = response.json()["value"]
 
-# Filter: alleen jaren + laatste 10 jaar
+df = pd.DataFrame(data)
+
+# Filter
 df = df[df["Perioden"].str.contains("JJ")]
 df = df[df["Perioden"] >= "2014JJ00"]
 
-# Jaar netjes maken
 df["Jaar"] = df["Perioden"].str[:4]
+df = df.sort_values("Jaar")
 
-# Chart
 st.line_chart(df.set_index("Jaar")["Ziekteverzuim_1"])
