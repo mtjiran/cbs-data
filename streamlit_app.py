@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import requests
+import io
 
 st.set_page_config(page_title="CBS verzuimdata", layout="wide")
 st.title("CBS verzuimdata")
@@ -8,7 +10,23 @@ URL = "https://datasets.cbs.nl/CSV/CBS/nl/80072ned"
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv(URL, sep=";", encoding="utf-8-sig")
+    response = requests.get(URL, timeout=60)
+    response.raise_for_status()
+
+    raw = response.content
+
+    text = None
+    for enc in ["utf-8-sig", "utf-8", "cp1252", "latin1"]:
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            pass
+
+    if text is None:
+        raise ValueError("Kon CBS-bestand niet decoderen.")
+
+    df = pd.read_csv(io.StringIO(text), sep=";")
     df.columns = [c.strip() for c in df.columns]
 
     period_col = next(c for c in df.columns if "Perioden" in c)
@@ -31,7 +49,6 @@ def load_data():
     df["sort_key"] = df["jaar"] * 10 + df["kwartaal"].fillna(0)
 
     return df, period_col, value_col, sector_col, size_col
-
 
 df, period_col, value_col, sector_col, size_col = load_data()
 
