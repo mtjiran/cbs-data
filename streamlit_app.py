@@ -38,7 +38,7 @@ def load_data():
         size_meta = size_meta.rename(columns={"Key": size_col, "Title": "bedrijfsgrootte"})
         df = df.merge(size_meta, on=size_col, how="left")
     else:
-        df["bedrijfsgrootte"] = "Onbekend"
+        df["bedrijfsgrootte"] = None
 
     df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
 
@@ -80,13 +80,47 @@ filtered = df[
     (df["jaar"] <= year_range[1])
 ].copy()
 
-size_options = sorted(filtered["bedrijfsgrootte"].dropna().unique().tolist())
-default_size = [next((x for x in size_options if "totaal" in str(x).lower() or "alle" in str(x).lower()), size_options[0])]
-selected_sizes = st.sidebar.multiselect("Bedrijfsgrootte", size_options, default=default_size)
-filtered = filtered[filtered["bedrijfsgrootte"].isin(selected_sizes)]
+# Alleen filteren op bedrijfsgrootte als die info echt nuttig is
+size_options = sorted(
+    filtered["bedrijfsgrootte"].dropna().astype(str).unique().tolist()
+)
 
-sector_options = sorted(filtered["bedrijfstak"].dropna().unique().tolist())
-default_sector = next((x for x in sector_options if "alle economische activiteiten" in str(x).lower()), sector_options[0])
+show_size_filter = not (
+    len(size_options) == 0 or
+    (len(size_options) == 1 and size_options[0].strip().lower() == "onbekend")
+)
+
+if show_size_filter:
+    default_size = [
+        next(
+            (x for x in size_options if "totaal" in x.lower() or "alle" in x.lower()),
+            size_options[0]
+        )
+    ]
+
+    selected_sizes = st.sidebar.multiselect(
+        "Bedrijfsgrootte",
+        size_options,
+        default=default_size
+    )
+
+    if selected_sizes:
+        filtered = filtered[filtered["bedrijfsgrootte"].isin(selected_sizes)]
+else:
+    st.sidebar.caption("Bedrijfsgrootte niet beschikbaar in deze selectie")
+
+sector_options = sorted(
+    filtered["bedrijfstak"].dropna().astype(str).unique().tolist()
+)
+
+if not sector_options:
+    st.warning("Geen bedrijfstakken beschikbaar voor deze filtercombinatie.")
+    st.stop()
+
+default_sector = next(
+    (x for x in sector_options if "alle economische activiteiten" in x.lower()),
+    sector_options[0]
+)
 
 selected_sectors = st.sidebar.multiselect(
     "Bedrijfstakken",
@@ -94,7 +128,11 @@ selected_sectors = st.sidebar.multiselect(
     default=[default_sector]
 )
 
+if not selected_sectors:
+    selected_sectors = [default_sector]
+
 include_benchmark = st.sidebar.checkbox("Voeg benchmark totaal toe", value=True)
+
 if include_benchmark and default_sector not in selected_sectors:
     selected_sectors = [default_sector] + selected_sectors
 
@@ -103,7 +141,6 @@ filtered = filtered[filtered["bedrijfstak"].isin(selected_sectors)]
 if filtered.empty:
     st.warning("Geen data voor deze filters.")
     st.stop()
-
 # -------------------------
 # KPI'S
 # -------------------------
