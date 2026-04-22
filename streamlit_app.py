@@ -28,9 +28,9 @@ def load_data():
     size_col = size_match.iloc[0] if not size_match.empty else None
 
     df = pd.DataFrame(cbsodata.get_data(TABLE))
-st.write(df[["bedrijfstak", "bedrijfsgrootte"]].drop_duplicates().head(20))
-
-df[sector_col] = df[sector_col].astype(str)
+    st.write(df[["bedrijfstak", "bedrijfsgrootte"]].drop_duplicates().head(20))
+    
+    df[sector_col] = df[sector_col].astype(str)
 
     sector_meta = pd.DataFrame(cbsodata.get_meta(TABLE, sector_col))[["Key", "Title"]].copy()
     sector_meta["Key"] = sector_meta["Key"].astype(str)
