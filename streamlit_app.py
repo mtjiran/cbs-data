@@ -1,37 +1,51 @@
 import streamlit as st
 import pandas as pd
-import requests
+import cbsodata
+from datetime import datetime
 
-st.title("Ziekteverzuim (CBS) – laatste 10 jaar")
+st.set_page_config(page_title="CBS verzuimdata", layout="wide")
+st.title("CBS verzuimdata - afgelopen 10 jaar")
 
-BASE_URL = "https://opendata.cbs.nl/ODataApi/odata/83765NED/TypedDataSet"
+TABLE = "80072NED"
 
-years = [f"{y}JJ00" for y in range(2014, 2024)]
-rows = []
+@st.cache_data
+def load_verzuim():
+    props = pd.DataFrame(cbsodata.get_meta(TABLE, "DataProperties"))
 
-for y in years:
-    url = (
-        f"{BASE_URL}"
-        f"?$filter=Perioden eq '{y}' and BedrijfstakkenBranchesSBI2008 eq 'T001019'"
-        f"&$top=1"
+    period_col = props.loc[props["Title"] == "Perioden", "Key"].iloc[0]
+    value_col = props.loc[
+        props["Title"].str.contains("Ziekteverzuimpercentage", case=False, na=False),
+        "Key"
+    ].iloc[0]
+    sector_col = props.loc[
+        props["Title"].str.contains("Bedrijfskenmerken", case=False, na=False),
+        "Key"
+    ].iloc[0]
+
+    sector_meta = pd.DataFrame(cbsodata.get_meta(TABLE, sector_col))
+    total_key = sector_meta.loc[
+        sector_meta["Title"].str.contains("Alle economische activiteiten", case=False, na=False),
+        "Key"
+    ].iloc[0]
+
+    df = pd.DataFrame(
+        cbsodata.get_data(
+            TABLE,
+            filters=f"{sector_col} eq '{total_key}'"
+        )
     )
 
-    r = requests.get(url)
+    # Alleen jaarcijfers
+    df = df[df[period_col].str.match(r"^\d{4}$")].copy()
+    df["jaar"] = df[period_col].astype(int)
 
-    if r.status_code != 200:
-        st.error(f"Fout bij {y}")
-        continue
+    current_year = datetime.now().year
+    df = df[df["jaar"] >= current_year - 9].copy()
 
-    data = r.json().get("value", [])
-    if data:
-        rows.append(data[0])  # slechts 1 record nodig
+    df = df.sort_values("jaar")
+    return df, value_col
 
-df = pd.DataFrame(rows)
+df, value_col = load_verzuim()
 
-# Kolom check (CBS blijft inconsistent)
-value_col = [col for col in df.columns if "Ziekteverzuim" in col][0]
-
-df["Jaar"] = df["Perioden"].str[:4].astype(int)
-df = df.sort_values("Jaar")
-
-st.line_chart(df.set_index("Jaar")[value_col])
+st.line_chart(df.set_index("jaar")[value_col])
+st.dataframe(df[["jaar", value_col]], use_container_width=True)
