@@ -49,13 +49,6 @@ def find_first_column(columns, candidates):
 
 
 def get_dimension_table_name(table_id: str, keyword_candidates: list[str]) -> str | None:
-    # zoekt in de table info naar de meest logische dimensietabel
-    table_info = cbsodata.get_table_info(table_id)
-    if "RecordIdentifier" in table_info:
-        _ = table_info["RecordIdentifier"]
-
-    # via get_meta('DataProperties') kunnen we niet altijd simpel de dimensietabel afleiden,
-    # daarom proberen we bekende paden
     common = [
         "RegioS",
         "WijkenEnBuurten",
