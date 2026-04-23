@@ -1,4 +1,10 @@
 streamlit
 pandas
+numpy
+requests
 cbsodata
-openai
+geopandas
+pydeck
+fiona
+openpyxl
+shapely
