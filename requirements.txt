@@ -5,6 +5,5 @@ requests
 cbsodata
 geopandas
 pydeck
-fiona
 openpyxl
 shapely
