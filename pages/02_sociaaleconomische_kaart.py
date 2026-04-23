@@ -10,7 +10,6 @@ import pandas as pd
 import pydeck as pdk
 import requests
 import streamlit as st
-import fiona
 
 
 st.set_page_config(page_title="CBS sociaaleconomische kaart", layout="wide")
@@ -202,7 +201,7 @@ def download_and_extract_gpkg():
 
 
 def pick_layer_name(gpkg_path: str, niveau: str):
-    layers = fiona.listlayers(gpkg_path)
+    layers = gpd.list_layers(gpkg_path)["name"].tolist()
     niveau = niveau.lower()
 
     preferred = {
@@ -442,7 +441,7 @@ st.pydeck_chart(
         layers=layers,
         tooltip={"html": tooltip_html, "style": {"backgroundColor": "white", "color": "black"}},
     ),
-    use_container_width=True,
+    width="stretch",
 )
 
 # ----------------------------
@@ -462,7 +461,7 @@ corr_candidates = list(dict.fromkeys(corr_candidates))
 if len(corr_candidates) >= 2:
     st.subheader("Correlatiematrix")
     corr_df = map_df[corr_candidates].apply(pd.to_numeric, errors="coerce")
-    st.dataframe(corr_df.corr().round(3), use_container_width=True)
+    st.dataframe(corr_df.corr().round(3), width="stretch")
 
 if show_table:
     st.subheader("Datatabel")
@@ -477,6 +476,6 @@ if show_table:
 
     st.dataframe(
         map_df[preferred_cols + others].drop(columns=[c for c in ["jaar_num", "niveau"] if c in map_df.columns], errors="ignore"),
-        use_container_width=True,
+        width="stretch",
         height=500,
     )
