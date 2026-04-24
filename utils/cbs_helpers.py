@@ -280,7 +280,43 @@ def load_geometry(
     gdf = gdf.to_crs(4326)
 
     return gdf
+    
+def simplify_geometry_for_web(
+    gdf: gpd.GeoDataFrame,
+    niveau: str,
+    detail: str = "normaal",
+) -> gpd.GeoDataFrame:
+    """
+    Houdt de hele kaart gevuld, maar maakt de geometrie lichter voor de browser.
+    Alleen de lijnen worden simpeler; je verliest geen regio's.
+    """
 
+    tolerance_map = {
+        "gemeente": {
+            "globaal": 250,
+            "normaal": 100,
+            "detail": 25,
+        },
+        "wijk": {
+            "globaal": 80,
+            "normaal": 35,
+            "detail": 10,
+        },
+        "buurt": {
+            "globaal": 30,
+            "normaal": 12,
+            "detail": 4,
+        },
+    }
+
+    tol = tolerance_map.get(niveau, {}).get(detail, 25)
+
+    out = gdf.copy()
+    out = out.to_crs(28992)
+    out["geometry"] = out.geometry.simplify(tolerance=tol, preserve_topology=True)
+    out = out.to_crs(4326)
+
+    return out
 
 def build_geojson(gdf: gpd.GeoDataFrame, fill_col: str, height_col: Optional[str] = None):
     gdf = gdf.copy()
