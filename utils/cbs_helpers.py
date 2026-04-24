@@ -318,26 +318,53 @@ def simplify_geometry_for_web(
 
     return out
 
-def build_geojson(gdf: gpd.GeoDataFrame, fill_col: str, height_col: Optional[str] = None):
-    gdf = gdf.copy()
+def build_geojson(
+    gdf: gpd.GeoDataFrame,
+    fill_col: str,
+    height_col: Optional[str] = None,
+    keep_props: Optional[list[str]] = None,
+):
+    keep_props = keep_props or []
 
-    fill_norm = normalize_series(gdf[fill_col])
-    gdf["fill_r"] = (255 * fill_norm).astype(int)
-    gdf["fill_g"] = (80 + 100 * (1 - fill_norm)).astype(int)
-    gdf["fill_b"] = (255 * (1 - fill_norm)).astype(int)
-    gdf["fill_a"] = 150
-
+    cols = ["RegioS", "geometry", fill_col]
     if height_col:
-        height_norm = normalize_series(gdf[height_col])
-        gdf["elevation"] = (500 + 9500 * height_norm).fillna(0).astype(float)
+        cols.append(height_col)
+    cols.extend(keep_props)
+
+    cols = [c for c in dict.fromkeys(cols) if c in gdf.columns]
+    out = gdf[cols].copy()
+
+    fill_norm = normalize_series(out[fill_col])
+    out["fill_r"] = (255 * fill_norm).astype(int)
+    out["fill_g"] = (80 + 100 * (1 - fill_norm)).astype(int)
+    out["fill_b"] = (255 * (1 - fill_norm)).astype(int)
+    out["fill_a"] = 150
+
+    if height_col and height_col in out.columns:
+        height_norm = normalize_series(out[height_col])
+        out["elevation"] = (500 + 9500 * height_norm).fillna(0).astype(float)
     else:
-        gdf["elevation"] = 0.0
+        out["elevation"] = 0.0
 
-    return json.loads(gdf.to_json())
+    payload_cols = ["geometry", "RegioS", "fill_r", "fill_g", "fill_b", "fill_a", "elevation"]
+    payload_cols.extend([c for c in keep_props if c in out.columns])
+    payload_cols = [c for c in dict.fromkeys(payload_cols) if c in out.columns]
+
+    return json.loads(out[payload_cols].to_json())
 
 
-def build_centroids_df(gdf: gpd.GeoDataFrame, size_col: str):
-    cent = gdf.copy()
+def build_centroids_df(
+    gdf: gpd.GeoDataFrame,
+    size_col: str,
+    keep_props: Optional[list[str]] = None,
+):
+    keep_props = keep_props or []
+
+    cols = ["RegioS", "geometry", size_col]
+    cols.extend(keep_props)
+    cols = [c for c in dict.fromkeys(cols) if c in gdf.columns]
+
+    cent = gdf[cols].copy()
     cent["geometry"] = cent.geometry.representative_point()
     cent["lon"] = cent.geometry.x
     cent["lat"] = cent.geometry.y
@@ -345,4 +372,8 @@ def build_centroids_df(gdf: gpd.GeoDataFrame, size_col: str):
     size_norm = normalize_series(cent[size_col])
     cent["radius"] = (100 + 2200 * size_norm).fillna(0).astype(float)
 
-    return pd.DataFrame(cent.drop(columns="geometry"))
+    out_cols = ["RegioS", "lon", "lat", "radius", size_col]
+    out_cols.extend([c for c in keep_props if c in cent.columns])
+    out_cols = [c for c in dict.fromkeys(out_cols) if c in cent.columns]
+
+    return pd.DataFrame(cent[out_cols])
