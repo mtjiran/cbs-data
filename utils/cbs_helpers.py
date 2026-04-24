@@ -16,31 +16,20 @@ DEFAULT_TABLE_SES = "86092NED"
 DEFAULT_GPKG_URL = "https://geodata.cbs.nl/files/Wijkenbuurtkaart/WijkBuurtkaart_2024_v2.zip"
 
 
-def normalize_regios(df: pd.DataFrame, candidates: list[str]) -> pd.DataFrame:
-    lookup = {c.lower(): c for c in df.columns}
-
-    found = None
-    for c in candidates:
-        if c.lower() in lookup:
-            found = lookup[c.lower()]
-            break
-
-    if found is None:
-        raise KeyError(f"Geen regiokolom gevonden. Beschikbare kolommen: {df.columns.tolist()}")
-
-    if found != "RegioS":
-        df = df.rename(columns={found: "RegioS"})
-
-    df["RegioS"] = (
-        df["RegioS"]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-
-    return df
-
-
+def make_regios(df: pd.DataFrame, candidates: list[str]) -> pd.DataFrame:
+    for col in candidates:
+        if col in df.columns:
+            df = df.copy()
+            df["RegioS"] = (
+                df[col]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .str.replace(r"\s+", "", regex=True)
+            )
+            return df
+    raise KeyError(f"Geen regiocodekolom gevonden. Beschikbare kolommen: {df.columns.tolist()}")
+    
 def normalize_geo_regios(gdf: gpd.GeoDataFrame, niveau: str) -> gpd.GeoDataFrame:
     candidates_map = {
         "gemeente": ["RegioS", "statcode", "gemeentecode", "gm_code"],
@@ -71,6 +60,7 @@ def normalize_geo_regios(gdf: gpd.GeoDataFrame, niveau: str) -> gpd.GeoDataFrame
         .astype(str)
         .str.strip()
         .str.upper()
+        .str.replace(r"\s+", "", regex=True)
     )
 
     return gdf
@@ -131,10 +121,20 @@ def get_numeric_columns(df: pd.DataFrame):
 def load_kwb_data(table_kwb: str = DEFAULT_TABLE_KWB) -> pd.DataFrame:
     df = pd.DataFrame(cbsodata.get_data(table_kwb))
 
-    df = normalize_regios(
+    df = make_regios(
         df,
-        ["RegioS", "Regios", "Regio", "WijkenEnBuurten", "WijkenEnBuurten_1", "Gebieden"]
+        [
+            "Codering_3",
+            "RegiocodeGemeenteWijkBuurt_1",
+            "WijkenEnBuurten",
+            "WijkenEnBuurten_1",
+            "RegioS",
+        ]
     )
+    if "Gemeentenaam_1" in df.columns:
+        df["regio_naam"] = df["Gemeentenaam_1"].astype(str).str.strip()
+    elif "Naam_1" in df.columns:
+        df["regio_naam"] = df["Naam_1"].astype(str).str.strip()
 
     region_col = detect_region_col(df)
     if region_col is None:
@@ -161,6 +161,8 @@ def load_kwb_data(table_kwb: str = DEFAULT_TABLE_KWB) -> pd.DataFrame:
         ],
         default="overig",
     )
+    st.write("Voorbeeld RegioS:", df["RegioS"].head(10).tolist())
+    st.write("Verdeling niveau:", df["niveau"].value_counts(dropna=False))
 
     return df
 
@@ -169,17 +171,16 @@ def load_kwb_data(table_kwb: str = DEFAULT_TABLE_KWB) -> pd.DataFrame:
 def load_ses_data(table_ses: str = DEFAULT_TABLE_SES):
     df = pd.DataFrame(cbsodata.get_data(table_ses))
 
-    df = normalize_regios(
+    df = make_regios(
         df,
-        ["RegioS", "Regios", "Regio", "WijkenEnBuurten", "WijkenEnBuurten_1", "Gebieden"]
+        [
+            "RegiocodeGemeenteWijkBuurt_1",
+            "Codering_3",
+            "WijkenEnBuurten",
+            "WijkenEnBuurten_1",
+            "RegioS",
+        ]
     )
-
-    region_col = detect_region_col(df)
-    if region_col is None:
-        raise KeyError(f"Geen regiokolom gevonden in SES-data. Kolommen: {df.columns.tolist()}")
-
-    if region_col != "RegioS":
-        df = df.rename(columns={region_col: "RegioS"})
 
     df["RegioS"] = df["RegioS"].astype(str)
 
