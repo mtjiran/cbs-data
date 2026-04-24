@@ -30,6 +30,27 @@ EXTRACT_DIR = DATA_DIR / "wijkbuurtkaart_2024"
 # Helpers
 # ----------------------------
 
+def detect_region_col(df: pd.DataFrame) -> str | None:
+    exact_candidates = [
+        "RegioS",
+        "Regios",
+        "Regio",
+        "WijkenEnBuurten",
+        "WijkenEnBuurten_1",
+        "Gebieden",
+    ]
+
+    for c in exact_candidates:
+        if c in df.columns:
+            return c
+
+    for c in df.columns:
+        cl = c.lower()
+        if "regio" in cl or "wijk" in cl or "buurt" in cl or "gemeente" in cl:
+            return c
+
+    return None
+
 def normalize_series(s: pd.Series) -> pd.Series:
     s = pd.to_numeric(s, errors="coerce")
     mn = s.min()
@@ -76,39 +97,32 @@ def get_dimension_table_name(table_id: str, keyword_candidates: list[str]) -> st
 def load_kwb_data():
     df = pd.DataFrame(cbsodata.get_data(TABLE_KWB))
 
-    # regio-labels ophalen
-    regio_dim_name = get_dimension_table_name(TABLE_KWB, ["RegioS"])
-    if regio_dim_name:
-        regio_dim = pd.DataFrame(cbsodata.get_data(TABLE_KWB, regio_dim_name))
-        key_col = find_first_column(regio_dim.columns, ["key"])
-        title_col = find_first_column(regio_dim.columns, ["title"])
-        if key_col and title_col and "RegioS" in df.columns:
-            regio_dim = regio_dim[[key_col, title_col]].rename(
-                columns={key_col: "RegioS", title_col: "regio_naam"}
-            )
-            df = df.merge(regio_dim, on="RegioS", how="left")
+    region_col = detect_region_col(df)
+    if region_col is None:
+        st.write("Kolommen in KWB:", df.columns.tolist())
+        raise KeyError("Geen regiokolom gevonden in KWB-data.")
 
-    # jaar/perioden
+    if region_col != "RegioS":
+        df = df.rename(columns={region_col: "RegioS"})
+
     if "Perioden" in df.columns:
         df["Perioden"] = df["Perioden"].astype(str)
 
-    # regio-niveau afleiden
-    if "RegioS" in df.columns:
-        df["niveau"] = np.select(
-            [
-                df["RegioS"].astype(str).str.startswith("GM"),
-                df["RegioS"].astype(str).str.startswith("WK"),
-                df["RegioS"].astype(str).str.startswith("BU"),
-            ],
-            [
-                "gemeente",
-                "wijk",
-                "buurt",
-            ],
-            default="overig",
-        )
-    else:
-        df["niveau"] = "onbekend"
+    df["RegioS"] = df["RegioS"].astype(str)
+
+    df["niveau"] = np.select(
+        [
+            df["RegioS"].str.startswith("GM"),
+            df["RegioS"].str.startswith("WK"),
+            df["RegioS"].str.startswith("BU"),
+        ],
+        [
+            "gemeente",
+            "wijk",
+            "buurt",
+        ],
+        default="overig",
+    )
 
     return df
 
@@ -117,54 +131,38 @@ def load_kwb_data():
 def load_ses_data():
     df = pd.DataFrame(cbsodata.get_data(TABLE_SES))
 
-    # regio-labels SES
-    ses_dim_name = get_dimension_table_name(TABLE_SES, ["WijkenEnBuurten"])
-    region_col = None
-    for c in df.columns:
-        if c.lower() in ["wijkenenbuurten", "wijkenenbuurten_1", "regios", "regios"]:
-            region_col = c
-            break
+    region_col = detect_region_col(df)
+    if region_col is None:
+        st.write("Kolommen in SES:", df.columns.tolist())
+        raise KeyError("Geen regiokolom gevonden in SES-data.")
 
-    if ses_dim_name and region_col:
-        regio_dim = pd.DataFrame(cbsodata.get_data(TABLE_SES, ses_dim_name))
-        key_col = find_first_column(regio_dim.columns, ["key"])
-        title_col = find_first_column(regio_dim.columns, ["title"])
-        if key_col and title_col:
-            regio_dim = regio_dim[[key_col, title_col]].rename(
-                columns={key_col: region_col, title_col: "ses_regio_naam"}
-            )
-            df = df.merge(regio_dim, on=region_col, how="left")
+    if region_col != "RegioS":
+        df = df.rename(columns={region_col: "RegioS"})
 
-    # kies laatste beschikbare jaar (verwacht 2023*)
+    df["RegioS"] = df["RegioS"].astype(str)
+
     if "Perioden" in df.columns:
         df["Perioden"] = df["Perioden"].astype(str)
         df["jaar_num"] = (
-            df["Perioden"]
-            .str.extract(r"(\d{4})", expand=False)
-            .astype(float)
+            df["Perioden"].str.extract(r"(\d{4})", expand=False).astype(float)
         )
         latest_year = int(df["jaar_num"].max())
         df = df[df["jaar_num"] == latest_year].copy()
     else:
         latest_year = None
 
-    # zoek SES-kolommen
     ses_score_col = find_first_column(df.columns, ["ses", "totaalscore"])
     spreiding_col = find_first_column(df.columns, ["spreiding"])
 
-    # regio-kolom normaliseren
-    if region_col is None:
-        for c in df.columns:
-            if c.lower().startswith("wijk") or c.lower().startswith("regio"):
-                region_col = c
-                break
+    keep = ["RegioS"]
+    if ses_score_col:
+        keep.append(ses_score_col)
+    if spreiding_col:
+        keep.append(spreiding_col)
 
-    keep = [c for c in [region_col, "ses_regio_naam", ses_score_col, spreiding_col] if c in df.columns]
     out = df[keep].copy()
 
     rename_map = {}
-    if region_col:
-        rename_map[region_col] = "RegioS"
     if ses_score_col:
         rename_map[ses_score_col] = "SES_WOA_score"
     if spreiding_col:
@@ -173,7 +171,6 @@ def load_ses_data():
     out = out.rename(columns=rename_map)
 
     return out, latest_year
-
 
 @st.cache_data(show_spinner=True)
 def download_and_extract_gpkg():
