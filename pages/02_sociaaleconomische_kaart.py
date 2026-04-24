@@ -30,6 +30,64 @@ EXTRACT_DIR = DATA_DIR / "wijkbuurtkaart_2024"
 # Helpers
 # ----------------------------
 
+def normalize_regios(df: pd.DataFrame, candidates: list[str]) -> pd.DataFrame:
+    lookup = {c.lower(): c for c in df.columns}
+
+    found = None
+    for c in candidates:
+        if c.lower() in lookup:
+            found = lookup[c.lower()]
+            break
+
+    if found is None:
+        st.write("Kolommen:", df.columns.tolist())
+        raise KeyError("Geen regiokolom gevonden.")
+
+    if found != "RegioS":
+        df = df.rename(columns={found: "RegioS"})
+
+    df["RegioS"] = (
+        df["RegioS"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+    return df
+
+
+def normalize_geo_regios(gdf: gpd.GeoDataFrame, niveau: str) -> gpd.GeoDataFrame:
+    candidates_map = {
+        "gemeente": ["RegioS", "statcode", "gemeentecode", "gemeentecode", "gm_code"],
+        "wijk": ["RegioS", "statcode", "wijkcode", "wk_code"],
+        "buurt": ["RegioS", "statcode", "buurtcode", "bu_code"],
+    }
+
+    candidates = candidates_map[niveau]
+    lookup = {c.lower(): c for c in gdf.columns}
+
+    found = None
+    for c in candidates:
+        if c.lower() in lookup:
+            found = lookup[c.lower()]
+            break
+
+    if found is None:
+        st.write("Geo-kolommen:", gdf.columns.tolist())
+        raise KeyError(f"Geen regiocodekolom gevonden voor niveau: {niveau}")
+
+    if found != "RegioS":
+        gdf = gdf.rename(columns={found: "RegioS"})
+
+    gdf["RegioS"] = (
+        gdf["RegioS"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+    return gdf
+
 def detect_region_col(df: pd.DataFrame) -> str | None:
     exact_candidates = [
         "RegioS",
@@ -97,6 +155,11 @@ def get_dimension_table_name(table_id: str, keyword_candidates: list[str]) -> st
 def load_kwb_data():
     df = pd.DataFrame(cbsodata.get_data(TABLE_KWB))
 
+    df = normalize_regios(
+        df,
+        ["RegioS", "Regios", "Regio", "WijkenEnBuurten", "WijkenEnBuurten_1", "Gebieden"]
+    )
+
     region_col = detect_region_col(df)
     if region_col is None:
         st.write("Kolommen in KWB:", df.columns.tolist())
@@ -131,6 +194,11 @@ def load_kwb_data():
 def load_ses_data():
     df = pd.DataFrame(cbsodata.get_data(TABLE_SES))
 
+    df = normalize_regios(
+        df,
+        ["RegioS", "Regios", "Regio", "WijkenEnBuurten", "WijkenEnBuurten_1", "Gebieden"]
+    )
+    
     region_col = detect_region_col(df)
     if region_col is None:
         st.write("Kolommen in SES:", df.columns.tolist())
@@ -234,12 +302,7 @@ def load_geometry(niveau: str):
     layer = pick_layer_name(str(gpkg_path), niveau)
     gdf = gpd.read_file(gpkg_path, layer=layer)
 
-    code_col = pick_geo_code_column(gdf, niveau)
-    if code_col is None:
-        raise KeyError(f"Geen codekolom gevonden voor niveau: {niveau}")
-
-    gdf = gdf.rename(columns={code_col: "RegioS"})
-    gdf["RegioS"] = gdf["RegioS"].astype(str)
+    gdf = normalize_geo_regios(gdf, niveau)
 
     # houd geometrie compact
     gdf = gdf[["RegioS", "geometry"] + [c for c in gdf.columns if c != "geometry" and c != "RegioS"]].copy()
